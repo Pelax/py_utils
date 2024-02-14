@@ -1,4 +1,5 @@
 # Usage: python extract_bundle.py <path_to_folder_with_zip_files> [main_only]
+# Adding 'main_only' parameter means different intensities and cuts files won't be extracted
 # Examples:
 # python extract_bundle.py "C:/Ovani Sound"
 # python extract_bundle.py "C:/Ovani Sound" main_only
