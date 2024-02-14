@@ -6,11 +6,8 @@
 
 # Usage: python multiplayer_sync.py <work_folder> <copy_folder> [f]
 
-import os
-import subprocess
-import shutil
-import sys
-from tkinter import filedialog
+import os, subprocess, shutil, sys
+
 
 if len(sys.argv) < 3:
     print("Usage: python multiplayer_sync.py <work_folder> <copy_folder>")
@@ -19,6 +16,7 @@ if len(sys.argv) < 3:
 work_folder = sys.argv[1]
 copy_folder = sys.argv[2]
 ask_confirmation = True
+
 if len(sys.argv) > 3:
     ask_confirmation = sys.argv[3] != "f"
 
@@ -107,7 +105,7 @@ if len(files_copied) > 0:
     for file_name in files_copied:
         print(file_name)
 else:
-    print("No files copied.")
+    print("Everything matched, no files copied.")
 
 
 print("Done!")
