@@ -12,13 +12,14 @@ def extract_wavs(zip_file_path, extract_to_path):
         file_list = zip_file.infolist()
         for file in file_list:
             file_name_lc = file.filename.lower()
-            print(file_name_lc)
-            if ".wav" in file_name_lc and (
+            # print(file_name_lc)
+            if ".wav" in file_name_lc and "__macosx" not in file_name_lc and (
                 not main_only
                 or "main" in file_name_lc
                 or "sound fx" in file_name_lc
                 or "sfx" in file_name_lc
             ):
+                file.filename = file.filename.replace(") /", ")/")
                 print("will extract " + file.filename)
                 zip_file.extract(file, extract_to_path)
                 if main_only and "main" in file_name_lc:
