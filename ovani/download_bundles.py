@@ -4,17 +4,28 @@ import re
 import sys
 import asyncio
 import aiohttp
+import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import argparse
 from tqdm import tqdm
+
+def log_failed_download(url: str, filename: str, error: str, log_file: Path = Path("failed_downloads.log")):
+    """Log failed download attempts to a file."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, 'a', encoding='utf-8') as f:
+        f.write(f"[{timestamp}] Failed: {filename}\n")
+        f.write(f"  URL: {url}\n")
+        f.write(f"  Error: {error}\n\n")
 
 async def download_file(session: aiohttp.ClientSession, 
                        url: str, 
                        dest_path: Path,
-                       progress_bar: tqdm):
+                       progress_bar: tqdm,
+                       log_errors: bool = True):
+    filename = dest_path.name
     try:
         async with session.get(url, allow_redirects=True) as response:
             if response.status == 200:
@@ -22,7 +33,7 @@ async def download_file(session: aiohttp.ClientSession,
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 progress_bar.reset(total=total_size)
-                progress_bar.set_description(f"Downloading {dest_path.name[:20]}...")
+                progress_bar.set_description(f"Downloading {filename[:20]}...")
                 
                 with open(dest_path, 'wb') as f:
                     async for chunk in response.content.iter_chunked(8192):
@@ -31,10 +42,16 @@ async def download_file(session: aiohttp.ClientSession,
                 
                 return True
             else:
-                print(f"\nFailed to download {url}: HTTP {response.status}")
+                error_msg = f"HTTP {response.status}"
+                if log_errors:
+                    log_failed_download(url, filename, error_msg)
+                print(f"\nFailed to download {filename}: {error_msg}")
                 return False
     except Exception as e:
-        print(f"\nError downloading {url}: {str(e)}")
+        error_msg = str(e)
+        if log_errors:
+            log_failed_download(url, filename, error_msg)
+        print(f"\nError downloading {filename}: {error_msg}")
         return False
 
 async def download_all_files(urls: List[str], dest_folder: Path, max_concurrent: int = 2):
@@ -68,28 +85,31 @@ def extract_links_and_filenames(html_content: str) -> List[tuple[str, str]]:
     soup = BeautifulSoup(html_content, 'html.parser')
     pattern = re.compile(r'https://ovanisound\.com/apps/digital-downloads/download/[a-f0-9-]+\?from=Download%20Page')
     
-    # Find all download containers
+    # Find all download items
     download_items = soup.find_all('div', class_='dda-order__item')
     results = []
     
     for item in download_items:
-        # Find the filename from the asset-filename div
-        filename_div = item.find('div', class_='dda-order__asset-filename')
-        if not filename_div:
-            continue
+        download_assets = item.find_all('div', class_='dda-order__asset')
+        for asset in download_assets:
+            # Find the filename from the asset-filename div
+            filename_div = asset.find('div', class_='dda-order__asset-filename')
+            if not filename_div:
+                continue
+                
+            # Clean up the filename (remove any extra whitespace or newlines)
+            filename = filename_div.get_text(strip=True)
             
-        # Clean up the filename (remove any extra whitespace or newlines)
-        filename = filename_div.get_text(strip=True)
-        
-        # Find the download link
-        link = item.find('a', href=pattern)
-        if link and filename:
-            results.append((link['href'], filename))
+            # Find the download link
+            link = asset.find('a', href=pattern)
+            if link and filename:
+                results.append((link['href'], filename))
     
     return results
 
 async def download_all_files(downloads: List[tuple[str, str]], dest_folder: Path):
     progress_bar = tqdm(unit='B', unit_scale=True, unit_divisor=1024)
+    failed_downloads = []
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -107,9 +127,23 @@ async def download_all_files(downloads: List[tuple[str, str]], dest_folder: Path
                 result = await download_file(session, url, dest_path, progress_bar)
                 if result:
                     successful += 1
+                else:
+                    failed_downloads.append((url, filename))
             
             progress_bar.close()
-            print(f"\nDownload complete! {successful}/{total_files} files downloaded successfully.")
+            
+            # Print summary
+            print(f"\n{'='*50}")
+            print(f"Download Complete!")
+            print(f"Successfully downloaded: {successful}/{total_files}")
+            print(f"Failed downloads: {len(failed_downloads)}")
+            
+            if failed_downloads:
+                print("\nFailed downloads have been logged to 'failed_downloads.log'")
+                print("You can retry these downloads using the log file.")
+            
+            print('='*50)
+            
             return successful == total_files
     except Exception as e:
         print(f"\nAn error occurred during downloads: {str(e)}")
