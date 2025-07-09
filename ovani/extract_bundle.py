@@ -66,7 +66,7 @@ def process_zip_member(zip_file: zipfile.ZipFile, file: zipfile.ZipInfo, extract
         file_name_lc = file.filename.lower()
         
         # Skip unwanted files
-        if any(x in file_name_lc for x in ["__macosx", "cut 30", "cut 60", "intensity 1", "intensity 2"]):
+        if any(x in file_name_lc for x in ["__macosx", "cut 30", "cut 60", "intensity 1", "intensity 2", "cut30", "cut60", "intensity1", "intensity2"]):
             return
             
         # Determine extraction path
@@ -176,12 +176,12 @@ def main():
         print(f"Error: Not a directory: {folder_path}")
         return 1
 
-    # Use folder path as extract path, since "Music" and "Sfx" subfolders will be created
+    # Use folder path as extract path, since subfolders will be created
     extract_to_path = os.path.abspath(folder_path)
     print(f"Processing ZIP files in: {extract_to_path}")
 
     # Create output directories if they don't exist
-    for subdir in ["Music", "Sfx"]:
+    for subdir in ["Music", "Sfx", "Plugins"]:
         os.makedirs(os.path.join(extract_to_path, subdir), exist_ok=True)
 
     # Find all ZIP files in the directory
@@ -198,6 +198,13 @@ def main():
     
     for zip_file_path in zip_files_paths:
         print(f"\nProcessing: {os.path.basename(zip_file_path)}")
+        # check if the file is a plugin (starts with "Ovani")
+        if os.path.basename(zip_file_path).startswith("Ovani"):
+            # copy the file to the Plugins folder
+            shutil.copy(zip_file_path, os.path.join(extract_to_path, "Plugins"))
+            print(f"Copied {os.path.basename(zip_file_path)} to Plugins folder")
+            success_count += 1
+            continue
         success, error_msg = extract_wavs(zip_file_path, extract_to_path)
         if success:
             success_count += 1

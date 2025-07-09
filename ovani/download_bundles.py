@@ -24,35 +24,70 @@ async def download_file(session: aiohttp.ClientSession,
                        url: str, 
                        dest_path: Path,
                        progress_bar: tqdm,
-                       log_errors: bool = True):
+                       log_errors: bool = True,
+                       max_retries: int = 2) -> bool:
+    """Download a file with retry logic.
+    
+    Args:
+        session: aiohttp client session
+        url: URL of the file to download
+        dest_path: Local path to save the file
+        progress_bar: tqdm progress bar instance
+        log_errors: Whether to log errors to file
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        bool: True if download was successful, False otherwise
+    """
     filename = dest_path.name
-    try:
-        async with session.get(url, allow_redirects=True) as response:
-            if response.status == 200:
-                total_size = int(response.headers.get('content-length', 0))
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                progress_bar.reset(total=total_size)
-                progress_bar.set_description(f"Downloading {filename[:20]}...")
-                
-                with open(dest_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(8192):
-                        f.write(chunk)
-                        progress_bar.update(len(chunk))
-                
-                return True
-            else:
-                error_msg = f"HTTP {response.status}"
-                if log_errors:
-                    log_failed_download(url, filename, error_msg)
-                print(f"\nFailed to download {filename}: {error_msg}")
-                return False
-    except Exception as e:
-        error_msg = str(e)
-        if log_errors:
-            log_failed_download(url, filename, error_msg)
-        print(f"\nError downloading {filename}: {error_msg}")
-        return False
+    last_error = None
+    
+    for attempt in range(max_retries + 1):  # +1 for the initial attempt
+        if attempt > 0:
+            print(f"\nRetry {attempt}/{max_retries} for {filename}...")
+            await asyncio.sleep(1 * attempt)  # Exponential backoff
+            
+        try:
+            async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=300)) as response:
+                if response.status == 200:
+                    total_size = int(response.headers.get('content-length', 0))
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Use a temporary file during download to prevent partial files
+                    temp_path = dest_path.with_suffix(dest_path.suffix + '.tmp')
+                    
+                    progress_bar.reset(total=total_size)
+                    progress_bar.set_description(f"Downloading {filename[:20]}...")
+                    
+                    try:
+                        with open(temp_path, 'wb') as f:
+                            async for chunk in response.content.iter_chunked(8192):
+                                f.write(chunk)
+                                progress_bar.update(len(chunk))
+                        
+                        # Only rename if download was successful
+                        if temp_path.exists():
+                            if dest_path.exists():
+                                dest_path.unlink()  # Remove existing file if any
+                            temp_path.rename(dest_path)
+                            return True
+                    except Exception as e:
+                        # Clean up temp file if download failed
+                        if temp_path.exists():
+                            temp_path.unlink()
+                        raise e
+                else:
+                    last_error = f"HTTP {response.status}"
+        except Exception as e:
+            last_error = str(e)
+    
+    # If we get here, all attempts failed
+    if log_errors and last_error is not None:
+        log_failed_download(url, filename, last_error)
+    print(f"\nFailed to download {filename} after {max_retries + 1} attempts: {last_error}")
+    # stop script execution, we want to have the files in the exact "date modified" order
+    sys.exit(1)
+    return False
 
 async def download_all_files(urls: List[str], dest_folder: Path, max_concurrent: int = 2):
     semaphore = asyncio.Semaphore(max_concurrent)
